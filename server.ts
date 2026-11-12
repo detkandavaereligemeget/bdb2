@@ -343,11 +343,11 @@ async function startServer() {
     const { navn, email, virksomhed, program, subject, text, html } =
       buildEmailContent(payload);
 
-    if (!navn || !email || !virksomhed || !program) {
+    if (!navn || !email) {
       res.status(400).json({
         success: false,
         code: "VALIDATION_ERROR",
-        error: "Udfyld venligst alle påkrævede felter (navn, e-mail, virksomhed og bogføringsprogram).",
+        error: "Udfyld venligst dit navn og din e-mailadresse.",
       });
       return;
     }

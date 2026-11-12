@@ -17,7 +17,11 @@ import {
   Info,
   ChevronLeft,
   Loader2,
-  Lock
+  Lock,
+  MessageSquare,
+  Send,
+  Menu,
+  X
 } from 'lucide-react';
 
 const fadeIn = {
@@ -94,15 +98,140 @@ const initialFormData = {
   humanCheck: ''
 };
 
+const initialGeneralFormData = {
+  navn: '',
+  email: '',
+  virksomhed: '',
+  emne: '',
+  besked: '',
+  humanCheck: ''
+};
+
 export default function App() {
   const [showContactPage, setShowContactPage] = useState(false);
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [botcheck, setBotcheck] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
-  // Form State
+  // Onboarding Form State
   const [formData, setFormData] = useState(initialFormData);
+
+  // General Contact Form State
+  const [generalFormData, setGeneralFormData] = useState(initialGeneralFormData);
+  const [generalSubmitting, setGeneralSubmitting] = useState(false);
+  const [generalSubmitted, setGeneralSubmitted] = useState(false);
+  const [generalError, setGeneralError] = useState<string | null>(null);
+  const [generalBotcheck, setGeneralBotcheck] = useState(false);
+
+  const buildGeneralMailtoHref = () => {
+    const subject = encodeURIComponent(
+      generalFormData.emne 
+        ? `Spørgsmål: ${generalFormData.emne} (${generalFormData.navn || 'kunde'}) — Behold dit bogføringsprogram`
+        : `Nyt spørgsmål fra ${generalFormData.navn || 'kunde'} — Behold dit bogføringsprogram`
+    );
+    const bodyLines = [
+      `Navn: ${generalFormData.navn}`,
+      `E-mail: ${generalFormData.email}`,
+      `Virksomhed: ${generalFormData.virksomhed || 'Ikke angivet'}`,
+      `Emne: ${generalFormData.emne || 'Almindeligt spørgsmål'}`,
+      '',
+      'Spørgsmål / besked:',
+      generalFormData.besked || '(Ingen besked)'
+    ];
+    return `mailto:info@behold-dit-bogforingsprogram.dk?subject=${subject}&body=${encodeURIComponent(bodyLines.join('\n'))}`;
+  };
+
+  const handleGeneralSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGeneralError(null);
+
+    const checkValue = generalFormData.humanCheck.trim().toLowerCase();
+    if (checkValue !== 'menneske' && checkValue !== '8') {
+      setGeneralError("Venligst bekræft at du er et menneske (Svar 8 eller skriv menneske).");
+      return;
+    }
+
+    setGeneralSubmitting(true);
+
+    try {
+      const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+      const web3formsKey = env?.VITE_WEB3FORMS_ACCESS_KEY?.trim();
+
+      if (web3formsKey) {
+        const payload: Record<string, string | boolean> = {
+          access_key: web3formsKey,
+          subject: `Nyt spørgsmål fra ${generalFormData.navn}${generalFormData.virksomhed ? ` (${generalFormData.virksomhed})` : ''} — Behold dit bogføringsprogram`,
+          from_name: 'Behold dit bogføringsprogram',
+          name: generalFormData.navn,
+          email: generalFormData.email,
+          replyto: generalFormData.email,
+          Virksomhed: generalFormData.virksomhed || 'Ikke angivet',
+          Emne: generalFormData.emne || 'Almindeligt spørgsmål',
+          message: generalFormData.besked,
+          botcheck: generalBotcheck,
+        };
+
+        const response = await fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json().catch(() => null);
+
+        if (response.ok && result?.success) {
+          setGeneralSubmitted(true);
+          setGeneralFormData(initialGeneralFormData);
+          setGeneralBotcheck(false);
+        } else {
+          setGeneralError(
+            result?.message ||
+              "Beskeden kunne ikke sendes automatisk lige nu. Du kan sende den direkte via dit mailprogram nedenfor."
+          );
+        }
+        return;
+      }
+
+      const contactEndpoint = env?.VITE_CONTACT_API_URL || '/api/contact';
+      const response = await fetch(contactEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          navn: generalFormData.navn,
+          email: generalFormData.email,
+          virksomhed: generalFormData.virksomhed || 'Ikke angivet',
+          program: 'Almindeligt spørgsmål',
+          fritekst: `${generalFormData.emne ? `Emne: ${generalFormData.emne}\n\n` : ''}${generalFormData.besked}`,
+          humanCheck: generalFormData.humanCheck
+        })
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (response.ok && result?.success) {
+        setGeneralSubmitted(true);
+        setGeneralFormData(initialGeneralFormData);
+        setGeneralBotcheck(false);
+      } else {
+        setGeneralError(
+          result?.error ||
+            "Beskeden kunne ikke sendes automatisk lige nu. Du kan sende den direkte via dit mailprogram nedenfor."
+        );
+      }
+    } catch (error) {
+      console.error("Error submitting general form:", error);
+      setGeneralError(
+        "Der opstod en netværksfejl under afsendelsen. Du kan sende din besked direkte via dit mailprogram nedenfor."
+      );
+    } finally {
+      setGeneralSubmitting(false);
+    }
+  };
 
   const buildMailtoHref = () => {
     const subject = encodeURIComponent(
@@ -252,7 +381,22 @@ export default function App() {
                 className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-xl border border-slate-100"
               >
                 <h1 className="text-3xl font-black mb-2">Kom godt i gang</h1>
-                <p className="text-slate-500 mb-10">Udfyld formularen, så kontakter vi dig med det samme.</p>
+                <p className="text-slate-500 mb-4">Udfyld formularen med dine systemoplysninger, så kontakter vi dig med det samme.</p>
+                <div className="mb-8 p-4 bg-blue-50/60 rounded-2xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-600">Har du bare et hurtigt spørgsmål uden at udfylde systemtjekket?</span>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowContactPage(false);
+                      setTimeout(() => {
+                        document.getElementById('kontakt')?.scrollIntoView({ behavior: 'smooth' });
+                      }, 100);
+                    }}
+                    className="font-bold text-blue-600 hover:text-blue-700 text-left sm:text-right whitespace-nowrap underline"
+                  >
+                    Gå til kontaktformular ↓
+                  </button>
+                </div>
 
                 <form onSubmit={handleSubmit} className="space-y-8">
                   <input
@@ -489,22 +633,101 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 overflow-x-hidden selection:bg-blue-100 selection:text-blue-900" id="main-wrapper">
       {/* Navigation */}
-      <nav className="fixed top-0 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 z-50 py-4 px-6 md:px-12 flex justify-between items-center" id="navbar">
-        <div className="flex items-center gap-2" id="logo-container">
-          <Logo />
-        </div>
-        <div className="hidden md:flex gap-8 items-center" id="nav-links">
-          <a href="#krav" className="text-sm font-medium hover:text-blue-600 transition-colors">Loven</a>
-          <a href="#losninger" className="text-sm font-medium hover:text-blue-600 transition-colors">Løsninger</a>
-          <a href="#om-os" className="text-sm font-medium hover:text-blue-600 transition-colors">Om os</a>
-          <a 
-            href="#losninger" 
-            className="bg-blue-600 text-white px-5 py-2.5 rounded-full text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm shadow-blue-200"
-            id="nav-cta"
+      <nav className="fixed top-0 w-full bg-white/90 backdrop-blur-md border-b border-slate-200 z-50 py-3.5 px-6 md:px-12" id="navbar">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2 cursor-pointer" id="logo-container" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <Logo />
+          </div>
+
+          {/* Desktop Menu */}
+          <div className="hidden md:flex gap-7 items-center" id="nav-links">
+            <a href="#krav" className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Loven</a>
+            <a href="#software" className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Systemer</a>
+            <a href="#losninger" className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Løsninger</a>
+            <a href="#kontakt" className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Kontakt</a>
+            <a href="#om-os" className="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">Om os</a>
+            <a 
+              href="#losninger" 
+              className="bg-blue-600 text-white px-5 py-2.5 rounded-full text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm shadow-blue-200"
+              id="nav-cta"
+            >
+              Se priser
+            </a>
+          </div>
+
+          {/* Mobile Menu Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 -mr-2 text-slate-700 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition-colors"
+            aria-label="Åbn menu"
           >
-            Se priser
-          </a>
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
         </div>
+
+        {/* Mobile Dropdown Menu */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="md:hidden border-t border-slate-100 mt-3 pt-3 pb-3 space-y-2 bg-white"
+            >
+              <div className="flex flex-col space-y-1">
+                <a 
+                  href="#krav" 
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3 py-2.5 rounded-xl font-medium text-slate-800 hover:bg-blue-50 hover:text-blue-600 transition-colors text-sm"
+                >
+                  Lovens krav
+                </a>
+                <a 
+                  href="#software" 
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3 py-2.5 rounded-xl font-medium text-slate-800 hover:bg-blue-50 hover:text-blue-600 transition-colors text-sm"
+                >
+                  Understøttede systemer
+                </a>
+                <a 
+                  href="#losninger" 
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3 py-2.5 rounded-xl font-medium text-slate-800 hover:bg-blue-50 hover:text-blue-600 transition-colors text-sm"
+                >
+                  Løsninger & priser
+                </a>
+                <a 
+                  href="#kontakt" 
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3 py-2.5 rounded-xl font-medium text-slate-800 hover:bg-blue-50 hover:text-blue-600 transition-colors text-sm flex items-center justify-between"
+                >
+                  <span>Kontakt os (Spørgsmål)</span>
+                  <span className="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Hurtigt svar</span>
+                </a>
+                <a 
+                  href="#om-os" 
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3 py-2.5 rounded-xl font-medium text-slate-800 hover:bg-blue-50 hover:text-blue-600 transition-colors text-sm"
+                >
+                  Om os (Hvem er vi)
+                </a>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setMobileMenuOpen(false);
+                    handleContactClick(e);
+                  }}
+                  className="w-full text-center bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors text-sm shadow-sm"
+                >
+                  Kom godt i gang (Systemtjek)
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </nav>
 
       {/* Hero Section */}
@@ -699,6 +922,165 @@ export default function App() {
         </div>
       </section>
 
+      {/* Almindelig Kontaktformular / Spørgsmål */}
+      <section className="py-24 px-6 md:px-12 max-w-4xl mx-auto" id="kontakt">
+        <div className="bg-white p-8 md:p-14 rounded-[2.5rem] shadow-xl border border-slate-100">
+          <div className="max-w-xl mx-auto text-center mb-10">
+            <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-4">
+              <MessageSquare className="w-4 h-4" /> Kontakt os
+            </div>
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-3 tracking-tight">Har du et spørgsmål?</h2>
+            <p className="text-slate-600 text-sm md:text-base leading-relaxed">
+              Er du i tvivl om reglerne, dit nuværende program eller vores løsninger? Udfyld formularen herunder, eller skriv direkte til os på <ObfuscatedEmail className="text-blue-600 underline font-semibold" /> — vi vender hurtigt tilbage.
+            </p>
+          </div>
+
+          {generalSubmitted ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-green-50 border border-green-200 p-10 rounded-3xl text-center space-y-4"
+            >
+              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-2xl font-bold text-green-900">Tak for dit spørgsmål!</h3>
+              <p className="text-green-800 text-sm md:text-base max-w-md mx-auto">
+                Vi har modtaget din henvendelse og vender tilbage til dig snarest muligt.
+              </p>
+              <button
+                type="button"
+                onClick={() => setGeneralSubmitted(false)}
+                className="text-xs font-bold text-green-700 uppercase tracking-widest hover:underline pt-2 block mx-auto"
+              >
+                Send et nyt spørgsmål
+              </button>
+            </motion.div>
+          ) : (
+            <form onSubmit={handleGeneralSubmit} className="space-y-6">
+              <input
+                type="checkbox"
+                name="botcheck"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                className="hidden"
+                checked={generalBotcheck}
+                onChange={e => setGeneralBotcheck(e.target.checked)}
+              />
+
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Navn *</label>
+                  <input
+                    required
+                    type="text"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all text-sm"
+                    placeholder="Dit fulde navn"
+                    value={generalFormData.navn}
+                    onChange={e => setGeneralFormData({...generalFormData, navn: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">E-mail *</label>
+                  <input
+                    required
+                    type="email"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all text-sm"
+                    placeholder="din@email.dk"
+                    value={generalFormData.email}
+                    onChange={e => setGeneralFormData({...generalFormData, email: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Virksomhed (valgfrit)</label>
+                  <input
+                    type="text"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all text-sm"
+                    placeholder="F.eks. Firmanavn ApS"
+                    value={generalFormData.virksomhed}
+                    onChange={e => setGeneralFormData({...generalFormData, virksomhed: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Emne (valgfrit)</label>
+                  <input
+                    type="text"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all text-sm"
+                    placeholder="Hvad handler henvendelsen om?"
+                    value={generalFormData.emne}
+                    onChange={e => setGeneralFormData({...generalFormData, emne: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Dit spørgsmål eller besked *</label>
+                <textarea
+                  required
+                  rows={5}
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-200/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all text-sm resize-y"
+                  placeholder="Skriv dit spørgsmål her..."
+                  value={generalFormData.besked}
+                  onChange={e => setGeneralFormData({...generalFormData, besked: e.target.value})}
+                />
+              </div>
+
+              {generalError && (
+                <div
+                  role="alert"
+                  className="bg-red-50 border border-red-200 text-red-900 p-5 rounded-2xl space-y-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-sm font-medium leading-relaxed">{generalError}</p>
+                  </div>
+                  <a
+                    href={buildGeneralMailtoHref()}
+                    className="inline-flex items-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-red-700 transition-colors"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Åbn i mailprogram (info@behold-dit-bogforingsprogram.dk)
+                  </a>
+                </div>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-6 items-end pt-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Sikkerhedstjek: hvad er 5 + 3? *</label>
+                  <input
+                    required
+                    type="text"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all text-sm"
+                    placeholder="Skriv 8"
+                    value={generalFormData.humanCheck}
+                    onChange={e => setGeneralFormData({...generalFormData, humanCheck: e.target.value})}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={generalSubmitting}
+                  className="w-full bg-blue-600 text-white py-4 rounded-2xl text-base font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {generalSubmitting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" /> Sender spørgsmål...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" /> Send spørgsmål
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </section>
+
       {/* About Section */}
       <section className="py-24 px-6 md:px-12 max-w-7xl mx-auto" id="om-os">
         <div className="bg-slate-900 rounded-[3rem] p-8 md:p-20 text-white grid md:grid-cols-2 gap-16 items-center" id="about-container">
@@ -731,7 +1113,7 @@ export default function App() {
               <h4 className="font-bold text-xl mb-1">Jossiane Laursen</h4>
               <p className="text-blue-400 text-sm font-semibold uppercase tracking-wider">Jurist</p>
             </div>
-        </div>
+          </div>
         </div>
       </section>
 
